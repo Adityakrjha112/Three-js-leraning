@@ -20,6 +20,7 @@ A comprehensive, progressive, and hands-on Three.js handbook and study repositor
   - [Lesson 07: Materials & Environment Maps](#lesson-07-materials--environment-maps)
   - [Lesson 08: 3D Text & Object Scattering](#lesson-08-3d-text--object-scattering)
   - [Lesson 09: Lights & Helpers](#lesson-09-lights--helpers)
+  - [Lesson 10: Shadows & Shadow Maps](#lesson-10-shadows--shadow-maps)
 - [🗺️ Upcoming Roadmap](#️-upcoming-roadmap)
 
 ---
@@ -88,6 +89,7 @@ Each lesson has its own dedicated JavaScript file in the root directory. To swit
 ├── materials.js      # Lesson 07: Materials & HDR Maps
 ├── text.js           # Lesson 08: 3D Text & Geometry Scattering
 ├── light.js          # Lesson 09: Lights & Helpers
+├── shadows.js        # Lesson 10: Shadow Maps & Baked Shadows
 │
 └── static/           # Textures, HDR environments, and fonts
 ```
@@ -1067,6 +1069,230 @@ tick()
    pointLight.position.z = Math.sin(elapsedTime) * 2
    ```
 3. Adjust `spotLight.penumbra` between `0` (hard edge) and `1` (ultra-soft feathered edge) to observe the shadow gradient.
+
+---
+
+### Lesson 10: Shadows & Shadow Maps
+*Source File: [`shadows.js`](./shadows.js)*
+
+#### What You'll Learn
+- How **Shadow Maps** work under the hood in Three.js (internal depth render passes).
+- The **4 mandatory steps** required to activate dynamic real-time shadows.
+- How to optimize shadow map resolution (`mapSize`), near/far clipping planes, and camera frustum bounds (`top`, `bottom`, `left`, `right`).
+- Shadow filtering algorithms: `BasicShadowMap`, `PCFShadowMap`, and `PCFSoftShadowMap`.
+- How to debug shadow cameras visually using **`CameraHelper`**.
+- Alternative high-performance shadow techniques: **Baked Shadows** and **Dynamic Alpha Shadow Planes**.
+
+---
+
+#### Concept
+
+In real life, shadows happen when an object blocks light rays. In 3D graphics, shadows do **not** happen automatically—they must be explicitly calculated using **Shadow Maps**.
+
+### 1. How Shadow Maps Work
+1. When rendering starts, Three.js performs a **first render pass** from the perspective of each shadow-casting light.
+2. It captures a monochrome depth texture called a **Shadow Map** (storing how far the nearest surface is from the light).
+3. In the **second render pass**, when rendering pixels from the player camera, Three.js checks if a pixel is farther than the recorded depth in the Shadow Map. If it is, the pixel is in shadow!
+
+```
+Step 1: Light Shadow Pass            Step 2: Camera Render Pass
+         💡 [Light]                           📷 [Camera]
+          \                                    /
+           ▼                                  ▼
+      [Sphere]  ──> (Records Depth)      [Is pixel behind depth?]
+         |                                    |
+         ▼                                    ▼
+   [Floor Plane]                         [Draws Dark Shadow]
+```
+
+### 2. The 4 Mandatory Rules for Dynamic Shadows
+Dynamic shadows will **only** work if all 4 conditions are met:
+1. **Renderer**: `renderer.shadowMap.enabled = true`
+2. **Light**: `light.castShadow = true` *(Supported on: `DirectionalLight`, `PointLight`, `SpotLight`)*
+3. **Casting Mesh**: `mesh.castShadow = true` *(The object blocking light)*
+4. **Receiving Mesh**: `floor.receiveShadow = true` *(The surface catching shadow)*
+
+### 3. Types of Shadows & Performance
+Dynamic shadows require re-rendering your scene for every shadow-casting light on every frame, which is heavy on mobile devices.
+
+| Shadow Technique | Performance | Pros | Cons |
+|---|---|---|---|
+| **Real-time Shadow Maps** | 🐢 Heavy | Dynamic, moves with lights & objects | High GPU cost, requires tuning frustum |
+| **Baked Texture Shadows** | ⚡ Instant | Photo-realistic, zero runtime GPU cost | Completely static, cannot move |
+| **Simple Alpha Shadow Plane** | 🚀 Very Fast | Lightweight, moves dynamically with mesh | Flat fake shadow on 2D planes only |
+
+---
+
+#### Example
+
+```javascript
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import GUI from 'lil-gui'
+
+const gui = new GUI()
+const canvas = document.querySelector('canvas.webgl')
+const sizes = { width: window.innerWidth, height: window.innerHeight }
+const scene = new THREE.Scene()
+
+// 1. Textures for Baked / Simple Shadows
+const textureLoader = new THREE.TextureLoader()
+const simpleShadowTexture = textureLoader.load('./textures/simpleShadow.jpg')
+simpleShadowTexture.colorSpace = THREE.SRGBColorSpace
+
+// 2. Lights
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.8)
+scene.add(ambientLight)
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5)
+directionalLight.position.set(2, 2, -1)
+
+// Enable shadow on light
+directionalLight.castShadow = true
+
+// Shadow Map Resolution (powers of 2: 512, 1024, 2048)
+directionalLight.shadow.mapSize.width = 1024
+directionalLight.shadow.mapSize.height = 1024
+
+// Tighten Shadow Camera Frustum (Crucial for high sharpness & performance)
+directionalLight.shadow.camera.near = 1
+directionalLight.shadow.camera.far = 6
+directionalLight.shadow.camera.top = 2
+directionalLight.shadow.camera.right = 2
+directionalLight.shadow.camera.bottom = -2
+directionalLight.shadow.camera.left = -2
+
+scene.add(directionalLight)
+
+// Optional: Visual Debugger for Directional Light Shadow Camera
+// const shadowCameraHelper = new THREE.CameraHelper(directionalLight.shadow.camera)
+// scene.add(shadowCameraHelper)
+
+// 3. Materials & Objects
+const material = new THREE.MeshStandardMaterial({ roughness: 0.7 })
+
+// Bouncing Sphere (Casts shadow)
+const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32), material)
+sphere.castShadow = true
+
+// Floor Plane (Receives shadow)
+const plane = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), material)
+plane.rotation.x = -Math.PI * 0.5
+plane.position.y = -0.5
+plane.receiveShadow = true
+
+// 4. Alternative: Simple Dynamic Fake Shadow Plane
+const sphereShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.5, 1.5),
+    new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        alphaMap: simpleShadowTexture,
+        opacity: 0.7
+    })
+)
+sphereShadow.rotation.x = -Math.PI * 0.5
+sphereShadow.position.y = plane.position.y + 0.01 // Lift slightly (-0.49) to prevent Z-fighting
+
+scene.add(sphere, plane, sphereShadow)
+
+// 5. Camera & OrbitControls
+const camera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height, 0.1, 100)
+camera.position.set(1, 1, 2)
+scene.add(camera)
+
+const controls = new OrbitControls(camera, canvas)
+controls.enableDamping = true
+
+// 6. Renderer (MUST enable shadowMap on renderer)
+const renderer = new THREE.WebGLRenderer({ canvas })
+renderer.setSize(sizes.width, sizes.height)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap // Soft blur edges
+
+// 7. Animation Loop
+const clock = new THREE.Clock()
+
+const tick = () => {
+    const elapsedTime = clock.getElapsedTime()
+
+    // Animate Bouncing Sphere
+    sphere.position.x = Math.sin(elapsedTime * 0.5) * 2
+    sphere.position.z = Math.cos(elapsedTime * 0.5) * 2
+    sphere.position.y = Math.abs(Math.sin(elapsedTime * 3)) * 1.5
+
+    // Sync Shadow Plane with Sphere Position
+    sphereShadow.position.x = sphere.position.x
+    sphereShadow.position.z = sphere.position.z
+    
+    // Scale & Fade shadow dynamically based on sphere altitude
+    const shadowScale = 1 - sphere.position.y * 0.3
+    sphereShadow.scale.set(shadowScale, shadowScale, shadowScale)
+    sphereShadow.material.opacity = (1 - sphere.position.y * 0.5) * 0.7
+
+    controls.update()
+    renderer.render(scene, camera)
+    window.requestAnimationFrame(tick)
+}
+
+tick()
+```
+
+---
+
+#### Code Explanation
+
+1. **`renderer.shadowMap.enabled = true`**: Activates the shadow mapping pipeline inside the WebGL engine.
+2. **`renderer.shadowMap.type = THREE.PCFSoftShadowMap`**: Uses Percentage-Closer Filtering with Gaussian smoothing to create soft, natural shadow edges.
+3. **`directionalLight.shadow.mapSize.width = 1024`**: Increases shadow resolution from the default 512x512 to 1024x1024 to eliminate pixelated stair-stepping (aliasing).
+4. **`directionalLight.shadow.camera.top / bottom / left / right`**: Sets the bounds of the orthographic shadow camera. Fitting the box tightly around the object ensures the 1024x1024 shadow map is concentrated strictly on the visible area.
+5. **`new THREE.CameraHelper(directionalLight.shadow.camera)`**: Renders a red wireframe box showing the exact coverage of the shadow camera.
+6. **Dynamic Shadow Plane (`sphereShadow`)**:
+   - `alphaMap: simpleShadowTexture`: Uses the grayscale texture as an opacity mask (white is opaque, black is transparent).
+   - `position.y = -0.49`: Placing it 0.01 units above the floor (`-0.50`) prevents **Z-fighting** (flickering texture overlap).
+   - Dynamic scaling & opacity: As the ball bounces higher, the shadow expands and fades out.
+
+---
+
+#### Key APIs
+
+- `renderer.shadowMap.enabled = true` — Turns on shadow rendering globally.
+- `renderer.shadowMap.type` — Shadow algorithm (`THREE.BasicShadowMap`, `THREE.PCFShadowMap`, `THREE.PCFSoftShadowMap`, `THREE.VSMShadowMap`).
+- `light.castShadow = true` — Enables light to cast shadows.
+- `mesh.castShadow = true` — Marks mesh to cast shadow into depth buffer.
+- `mesh.receiveShadow = true` — Marks surface to receive and display shadows.
+- `light.shadow.mapSize.set(1024, 1024)` — Sets shadow buffer texture resolution.
+- `light.shadow.camera` — The internal camera used to render the shadow map (`OrthographicCamera` for DirectionalLight, `PerspectiveCamera` for SpotLight/PointLight).
+- `new THREE.CameraHelper(light.shadow.camera)` — Helper to visualize shadow camera frustum.
+
+---
+
+#### Common Mistakes
+
+- **Forgetting `renderer.shadowMap.enabled = true` at Init**: Placing it inside a `resize` event or forgetting it causes all shadows to be completely invisible.
+- **Forgetting `plane.receiveShadow = true`**: Objects cast shadows, but without `receiveShadow = true` on the floor, no shadow appears.
+- **Shared Material Reference Bug**: Assigning the same `material` instance to both the sphere and the floor, then modifying `sphere.material.map` updates both objects simultaneously.
+- **Z-Fighting on Baked Shadow Planes**: Placing a shadow quad at the exact same Y coordinate as the floor (`position.y = -0.5`), causing GPU depth fighting and flickering black triangles. Always offset by `+0.01` (`-0.49`).
+- **Shadow Frustum Too Large**: Leaving shadow camera near/far/bounds at default massive sizes, causing shadow maps to look extremely low-resolution and pixelated.
+
+---
+
+#### Key Takeaways
+
+- To activate real-time shadows, you must configure **all 4**: Renderer + Light + Casting Mesh + Receiving Mesh.
+- Always optimize the `light.shadow.camera` bounds to fit your scene tightly for razor-sharp shadows with minimal GPU load.
+- Use `THREE.PCFSoftShadowMap` for smooth, realistic shadow penumbras.
+- For mobile web experiences, use **baked shadow textures** or **simple alpha shadow planes** to achieve 60 FPS without GPU strain.
+
+---
+
+#### Practice
+
+1. In `shadows.js`, uncomment `SpotLight` and test casting conical spotlight shadows with `spotLight.castShadow = true`.
+2. Connect `directionalLight.shadow.camera.near` and `far` to `lil-gui` to see how clipping cuts off shadows in real-time.
+3. Make the bouncing sphere speed configurable with a GUI slider.
+
 
 ---
 
