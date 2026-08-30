@@ -19,6 +19,7 @@ A comprehensive, progressive, and hands-on Three.js handbook and study repositor
   - [Lesson 06: Textures & LoadingManager](#lesson-06-textures--loadingmanager)
   - [Lesson 07: Materials & Environment Maps](#lesson-07-materials--environment-maps)
   - [Lesson 08: 3D Text & Object Scattering](#lesson-08-3d-text--object-scattering)
+  - [Lesson 09: Lights & Helpers](#lesson-09-lights--helpers)
 - [🗺️ Upcoming Roadmap](#️-upcoming-roadmap)
 
 ---
@@ -86,6 +87,7 @@ Each lesson has its own dedicated JavaScript file in the root directory. To swit
 ├── textures.js       # Lesson 06: Textures & LoadingManager
 ├── materials.js      # Lesson 07: Materials & HDR Maps
 ├── text.js           # Lesson 08: 3D Text & Geometry Scattering
+├── light.js          # Lesson 09: Lights & Helpers
 │
 └── static/           # Textures, HDR environments, and fonts
 ```
@@ -890,5 +892,184 @@ tick()
 2. Inside `tick()`, rotate all scattered donuts continuously.
 
 ---
+
+### Lesson 09: Lights & Helpers
+*Source File: [`light.js`](./light.js)*
+
+#### What You'll Learn
+- The 6 primary types of lights in Three.js and when to use each.
+- How light positioning, intensity, decay, distance, and color work.
+- The performance cost ranking of different lights.
+- How to use **Light Helpers** (`DirectionalLightHelper`, `PointLightHelper`, `SpotLightHelper`, etc.) to visually debug light sources.
+- How to aim `DirectionalLight` and `SpotLight` using their `target` property.
+
+#### Concept
+
+Lights are essential when working with light-reactive materials (like `MeshStandardMaterial`, `MeshPhysicalMaterial`, `MeshLambertMaterial`, `MeshPhongMaterial`, and `MeshToonMaterial`). Without lights, these materials render completely pitch black!
+
+Three.js provides 6 main types of lights:
+
+1. **`AmbientLight`**: Omnidirectional, uniform flat lighting applied equally to all surfaces. Cheap on performance, but does not provide depth, contrast, or shadows.
+2. **`DirectionalLight`**: Parallel sun-like rays coming from an infinitely far distance. Ideal for outdoor sunlight/daylight simulation.
+3. **`HemisphereLight`**: Dual-colored gradient light (sky color from above, ground color from below). Simulates natural outdoor environmental bounce light with near-zero performance cost.
+4. **`PointLight`**: An infinitely small point of light radiating in all 360° directions (like a light bulb or candle). Has `distance` and `decay`.
+5. **`RectAreaLight`**: A rectangular light emitting from a planar surface (like a photo studio softbox, TV screen, or neon strip light). *Note: Only works with `MeshStandardMaterial` and `MeshPhysicalMaterial`.*
+6. **`SpotLight`**: A cone of light emitting from a point in a single direction (like a stage spotlight, flashlight, or street lamp). Features `angle`, `penumbra`, `distance`, and `decay`.
+
+#### Performance Cost of Lights
+Always use the minimum number of lights needed:
+- 🟢 **Minimal Cost**: `AmbientLight`, `HemisphereLight`
+- 🟡 **Moderate Cost**: `DirectionalLight`, `PointLight`
+- 🔴 **High Cost**: `SpotLight`, `RectAreaLight`
+
+```
+Light Types Visualized:
+
+Ambient:       Directional:      Hemisphere:      Point:          Spot:           RectArea:
+  ░░░░░░░        ↓↓↓↓↓↓↓↓          ☁️ Sky Color      \   |   /         \     /         ┌──────┐
+  ░░░░░░░        ↓↓↓↓↓↓↓↓              ▼             -- (●) --         \ (●) /          │ 💡   │
+  ░░░░░░░        ↓↓↓↓↓↓↓↓          🌿 Ground Color   /   |   \          \   /           └──────┘
+ (Everywhere)   (Parallel Sun)   (Dual Sky/Ground) (360° Bulb)     (Cone Light)      (Softbox Panel)
+```
+
+#### Example
+```javascript
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import GUI from 'lil-gui'
+
+const canvas = document.querySelector('canvas.webgl')
+const sizes = { width: window.innerWidth, height: window.innerHeight }
+const scene = new THREE.Scene()
+
+// 1. Ambient Light (General soft baseline fill)
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.5)
+scene.add(ambientLight)
+
+// 2. Directional Light (Sunlight)
+const directionalLight = new THREE.DirectionalLight(0xf00fff, 0.5)
+directionalLight.position.set(1, 1, 0)
+scene.add(directionalLight)
+
+// 3. Hemisphere Light (Sky top: Red, Ground bottom: Blue)
+const hemiLight = new THREE.HemisphereLight(0xff0000, 0x0000ff, 0.5)
+scene.add(hemiLight)
+
+// 4. Point Light (Omnidirectional Bulb)
+const pointLight = new THREE.PointLight(0xffffff, 0.5, 10, 2)
+pointLight.position.set(1, -0.5, 1)
+scene.add(pointLight)
+
+// 5. RectArea Light (Neon / Studio Panel)
+const rectAreaLight = new THREE.RectAreaLight(0x4e00ff, 6, 1, 1)
+rectAreaLight.position.set(0, 0, 0)
+scene.add(rectAreaLight)
+
+// 6. Spot Light (Cone / Flashlight)
+const spotLight = new THREE.SpotLight(0xffffff, 0.5, 10, Math.PI * 0.1, 0.25, 1)
+spotLight.position.set(1, 0.5, 1)
+scene.add(spotLight)
+
+// Aim the spotlight target (must be added to the scene!)
+spotLight.target.position.x = 0
+scene.add(spotLight.target)
+
+// 7. Light Helpers (Visual debugging wireframes)
+const spotLightHelper = new THREE.SpotLightHelper(spotLight)
+const pointLightHelper = new THREE.PointLightHelper(pointLight, 0.2)
+const directionalLightHelper = new THREE.DirectionalLightHelper(directionalLight, 0.2)
+scene.add(spotLightHelper, pointLightHelper, directionalLightHelper)
+
+// 8. Objects & Materials
+const material = new THREE.MeshStandardMaterial({ roughness: 0.4 })
+
+const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32), material)
+sphere.position.x = -1.5
+
+const cube = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.75, 0.75), material)
+
+const torus = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.2, 32, 64), material)
+torus.position.x = 1.5
+
+const plane = new THREE.Mesh(new THREE.PlaneGeometry(5, 5, 100, 100), material)
+plane.rotation.x = -Math.PI * 0.5
+plane.position.y = -0.65
+
+scene.add(sphere, cube, torus, plane)
+
+// 9. Camera & Controls
+const camera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height, 0.1, 100)
+camera.position.set(1, 1, 2)
+scene.add(camera)
+
+const controls = new OrbitControls(camera, canvas)
+controls.enableDamping = true
+
+// 10. Renderer & Animation Loop
+const renderer = new THREE.WebGLRenderer({ canvas })
+renderer.setSize(sizes.width, sizes.height)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+
+const clock = new THREE.Clock()
+
+const tick = () => {
+    const elapsedTime = clock.getElapsedTime()
+
+    sphere.rotation.y = 0.1 * elapsedTime
+    cube.rotation.y = 0.1 * elapsedTime
+    torus.rotation.y = 0.1 * elapsedTime
+
+    sphere.rotation.x = 0.15 * elapsedTime
+    cube.rotation.x = 0.15 * elapsedTime
+    torus.rotation.x = 0.15 * elapsedTime
+
+    controls.update()
+    renderer.render(scene, camera)
+    window.requestAnimationFrame(tick)
+}
+
+tick()
+```
+
+#### Code Explanation
+1. `new THREE.AmbientLight(color, intensity)`: Creates uniform base lighting with no shadows or directionality.
+2. `new THREE.DirectionalLight(color, intensity)`: Rays travel parallel from `position` towards `target` (default target is `(0, 0, 0)`).
+3. `new THREE.HemisphereLight(skyColor, groundColor, intensity)`: Creates a gradient of illumination between sky and ground.
+4. `new THREE.PointLight(color, intensity, distance, decay)`: `distance` defines maximum light reach (`0` = infinite). `decay` controls realistic physical dimming rate (`2` is physically accurate).
+5. `spotLight.target.position.x = 0; scene.add(spotLight.target)`: Unlike normal objects, moving a `SpotLight` target requires explicitly adding `spotLight.target` to the scene.
+6. `new THREE.SpotLightHelper(...)` & `new THREE.DirectionalLightHelper(...)`: Wireframe visualizers that draw the light cones, vectors, and boundaries.
+
+#### Key APIs
+- `new THREE.AmbientLight(color, intensity)` — Omnidirectional flat lighting.
+- `new THREE.DirectionalLight(color, intensity)` — Sun-like parallel lighting.
+- `new THREE.HemisphereLight(skyColor, groundColor, intensity)` — Sky and ground dual light.
+- `new THREE.PointLight(color, intensity, distance, decay)` — Point light source.
+- `new THREE.RectAreaLight(color, intensity, width, height)` — Planar rectangular light.
+- `new THREE.SpotLight(color, intensity, distance, angle, penumbra, decay)` — Conical spotlight.
+- `new THREE.SpotLightHelper(spotLight)` / `new THREE.PointLightHelper(pointLight, size)` — Visual debug helpers.
+
+#### Common Mistakes
+- **Forgetting `scene.add(spotLight.target)`**: Changing `spotLight.target.position` will NOT work unless `scene.add(spotLight.target)` is called.
+- **Using Too Many Lights**: Every light added adds shader calculations to every vertex and fragment in the scene, which degrades performance on mobile GPUs.
+- **Pitch Black Shadows with Only Directional Light**: Without an `AmbientLight` or `HemisphereLight` fill, the non-illuminated sides of objects will be completely pitch black.
+- **RectAreaLight Not Lighting Materials**: Expecting `RectAreaLight` to illuminate `MeshBasicMaterial` or `MeshLambertMaterial` (it only works with `MeshStandardMaterial` and `MeshPhysicalMaterial`).
+
+#### Key Takeaways
+- Use **`AmbientLight` + `DirectionalLight`** or **`HemisphereLight` + `DirectionalLight`** as a reliable starting baseline for outdoor 3D scenes.
+- Use **Light Helpers** during development to visually align light vectors and cone angles.
+- Keep light count minimal for optimal 60 FPS performance.
+
+#### Practice
+1. In `light.js`, add a `lil-gui` slider to control `ambientLight.intensity` between `0` and `5`.
+2. Animate the `pointLight` moving in a circular orbit around the central cube inside the `tick()` animation loop:
+   ```javascript
+   pointLight.position.x = Math.cos(elapsedTime) * 2
+   pointLight.position.z = Math.sin(elapsedTime) * 2
+   ```
+3. Adjust `spotLight.penumbra` between `0` (hard edge) and `1` (ultra-soft feathered edge) to observe the shadow gradient.
+
+---
+
+
 
 
